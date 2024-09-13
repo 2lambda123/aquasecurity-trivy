@@ -118,6 +118,7 @@ func (p *Parser) Parse(r xio.ReadSeekerAt) ([]ftypes.Package, []ftypes.Dependenc
 	return p.parseRoot(root.artifact(), make(map[string]struct{}))
 }
 
+// nolint: gocyclo
 func (p *Parser) parseRoot(root artifact, uniqModules map[string]struct{}) ([]ftypes.Package, []ftypes.Dependency, error) {
 	// Prepare a queue for dependencies
 	queue := newArtifactQueue()
@@ -161,7 +162,16 @@ func (p *Parser) parseRoot(root artifact, uniqModules map[string]struct{}) ([]ft
 
 		// For soft requirements, skip dependency resolution that has already been resolved.
 		if uniqueArt, ok := uniqArtifacts[art.Name()]; ok {
+			// Check that both artifact and saved artifact has `test` scope.
+			// Otherwise, it is non-test dependency
+			art.Test = uniqueArt.Test && art.Test
 			if !uniqueArt.Version.shouldOverride(art.Version) {
+				// If saved artifact is `test`, but new artifact is `non-test`,
+				// then mark saved artifact as `non-test`.
+				if !art.Test && uniqueArt.Test {
+					uniqueArt.Test = art.Test
+					uniqArtifacts[art.Name()] = uniqueArt
+				}
 				continue
 			}
 			// mark artifact as Direct, if saved artifact is Direct
@@ -214,6 +224,7 @@ func (p *Parser) parseRoot(root artifact, uniqModules map[string]struct{}) ([]ft
 				Licenses:     result.artifact.Licenses,
 				Relationship: art.Relationship,
 				Locations:    art.Locations,
+				Test:         art.Test,
 			}
 
 			// save only dependency names
@@ -234,6 +245,7 @@ func (p *Parser) parseRoot(root artifact, uniqModules map[string]struct{}) ([]ft
 			Licenses:     art.Licenses,
 			Relationship: art.Relationship,
 			Locations:    art.Locations,
+			Dev:          art.Test,
 		}
 		pkgs = append(pkgs, pkg)
 
@@ -301,6 +313,7 @@ func (p *Parser) resolve(art artifact, rootDepManagement []pomDependency) (analy
 	result, err := p.analyze(pomContent, analysisOptions{
 		exclusions:    art.Exclusions,
 		depManagement: rootDepManagement,
+		testScope:     art.Test,
 	})
 	if err != nil {
 		return analysisResult{}, xerrors.Errorf("analyze error: %w", err)
@@ -323,6 +336,7 @@ type analysisOptions struct {
 	exclusions    map[string]struct{}
 	depManagement []pomDependency // from the root POM
 	lineNumber    bool            // Save line numbers
+	testScope     bool
 }
 
 func (p *Parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error) {
@@ -400,7 +414,7 @@ func (p *Parser) parseDependencies(deps []pomDependency, props map[string]string
 		// Resolve dependencies
 		d = d.Resolve(props, depManagement, rootDepManagement)
 
-		if (d.Scope != "" && d.Scope != "compile" && d.Scope != "runtime") || d.Optional {
+		if (d.Scope != "" && d.Scope != "compile" && d.Scope != "runtime" && d.Scope != "test") || d.Optional {
 			continue
 		}
 
