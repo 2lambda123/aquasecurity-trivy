@@ -20,11 +20,29 @@ const (
 	RelationshipIndirect
 )
 
-var relationshipNames = [...]string{
-	"unknown",
-	"root",
-	"direct",
-	"indirect",
+var (
+	Relationships = []Relationship{
+		RelationshipUnknown,
+		RelationshipRoot,
+		RelationshipDirect,
+		RelationshipIndirect,
+	}
+
+	relationshipNames = [...]string{
+		"unknown",
+		"root",
+		"direct",
+		"indirect",
+	}
+)
+
+func NewRelationship(s string) (Relationship, error) {
+	for i, name := range relationshipNames {
+		if s == name {
+			return Relationship(i), nil
+		}
+	}
+	return RelationshipUnknown, xerrors.Errorf("invalid relationship (%s)", s)
 }
 
 func (r Relationship) String() string {
@@ -60,7 +78,7 @@ type PkgIdentifier struct {
 }
 
 // MarshalJSON customizes the JSON encoding of PkgIdentifier.
-func (id *PkgIdentifier) MarshalJSON() ([]byte, error) {
+func (id PkgIdentifier) MarshalJSON() ([]byte, error) {
 	var p string
 	if id.PURL != nil {
 		p = id.PURL.String()
@@ -72,7 +90,7 @@ func (id *PkgIdentifier) MarshalJSON() ([]byte, error) {
 		*Alias
 	}{
 		PURL:  p,
-		Alias: (*Alias)(id),
+		Alias: (*Alias)(&id),
 	})
 }
 

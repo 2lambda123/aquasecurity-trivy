@@ -16,6 +16,8 @@ import (
 	"github.com/magefile/mage/sh"
 	"github.com/magefile/mage/target"
 
+	//mage:import rpm
+	rpm "github.com/aquasecurity/trivy/pkg/fanal/analyzer/pkg/rpm/testdata"
 	// Trivy packages should not be imported in Mage (see https://github.com/aquasecurity/trivy/pull/4242),
 	// but this package doesn't have so many dependencies, and Mage is still fast.
 	"github.com/aquasecurity/trivy/pkg/log"
@@ -29,6 +31,10 @@ var (
 		"CGO_ENABLED": "0",
 	}
 )
+
+var protoFiles = []string{
+	"pkg/iac/scanners/terraformplan/snapshot/planproto/planfile.proto",
+}
 
 func init() {
 	slog.SetDefault(log.New(log.NewHandler(os.Stderr, nil))) // stdout is suppressed in mage
@@ -154,11 +160,11 @@ func Mock(dir string) error {
 func Protoc() error {
 	// It is called in the protoc container
 	if _, ok := os.LookupEnv("TRIVY_PROTOC_CONTAINER"); ok {
-		protoFiles, err := findProtoFiles()
+		rpcProtoFiles, err := findRPCProtoFiles()
 		if err != nil {
 			return err
 		}
-		for _, file := range protoFiles {
+		for _, file := range rpcProtoFiles {
 			// Check if the generated Go file is up-to-date
 			dst := strings.TrimSuffix(file, ".proto") + ".pb.go"
 			if updated, err := target.Path(dst, file); err != nil {
@@ -170,6 +176,13 @@ func Protoc() error {
 			// Generate
 			if err = sh.RunV("protoc", "--twirp_out", ".", "--twirp_opt", "paths=source_relative",
 				"--go_out", ".", "--go_opt", "paths=source_relative", file); err != nil {
+				return err
+			}
+		}
+
+		for _, file := range protoFiles {
+			if err := sh.RunV("protoc", ".", "paths=source_relative", "--go_out", ".", "--go_opt",
+				"paths=source_relative", file); err != nil {
 				return err
 			}
 		}
@@ -257,7 +270,7 @@ func compileWasmModules(pattern string) error {
 
 // Unit runs unit tests
 func (t Test) Unit() error {
-	mg.Deps(t.GenerateModules)
+	mg.Deps(t.GenerateModules, rpm.Fixtures)
 	return sh.RunWithV(ENV, "go", "test", "-v", "-short", "-coverprofile=coverage.txt", "-covermode=atomic", "./...")
 }
 
@@ -331,11 +344,13 @@ func Fmt() error {
 	}
 
 	// Format proto files
-	protoFiles, err := findProtoFiles()
+	rpcProtoFiles, err := findRPCProtoFiles()
 	if err != nil {
 		return err
 	}
-	for _, file := range protoFiles {
+
+	allProtoFiles := append(protoFiles, rpcProtoFiles...)
+	for _, file := range allProtoFiles {
 		if err = sh.Run("clang-format", "-i", file); err != nil {
 			return err
 		}
@@ -422,7 +437,7 @@ func (Docs) Generate() error {
 	return sh.RunWith(ENV, "go", "run", "-tags=mage_docs", "./magefiles")
 }
 
-func findProtoFiles() ([]string, error) {
+func findRPCProtoFiles() ([]string, error) {
 	var files []string
 	err := filepath.WalkDir("rpc", func(path string, d fs.DirEntry, err error) error {
 		switch {

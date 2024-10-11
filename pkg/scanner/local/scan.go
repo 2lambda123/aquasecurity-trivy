@@ -108,9 +108,8 @@ func (s Scanner) Scan(ctx context.Context, targetName, artifactKey string, blobK
 func (s Scanner) ScanTarget(ctx context.Context, target types.ScanTarget, options types.ScanOptions) (types.Results, ftypes.OS, error) {
 	var results types.Results
 
-	// By default, we need to remove dev dependencies from the result
-	// IncludeDevDeps option allows you not to remove them
-	excludeDevDeps(target.Applications, options.IncludeDevDeps)
+	// Filter packages according to the options
+	excludePackages(&target, options)
 
 	// Add packages if needed and scan packages for vulnerabilities
 	vulnResults, eosl, err := s.scanVulnerabilities(ctx, target, options)
@@ -262,14 +261,7 @@ func (s Scanner) scanLicenses(target types.ScanTarget, options types.ScanOptions
 	var osPkgLicenses []types.DetectedLicense
 	for _, pkg := range target.Packages {
 		for _, license := range pkg.Licenses {
-			category, severity := scanner.Scan(license)
-			osPkgLicenses = append(osPkgLicenses, types.DetectedLicense{
-				Severity:   severity,
-				Category:   category,
-				PkgName:    pkg.Name,
-				Name:       license,
-				Confidence: 1.0,
-			})
+			osPkgLicenses = append(osPkgLicenses, toDetectedLicense(scanner, license, pkg.Name, ""))
 		}
 	}
 	results = append(results, types.Result{
@@ -283,17 +275,11 @@ func (s Scanner) scanLicenses(target types.ScanTarget, options types.ScanOptions
 		var langLicenses []types.DetectedLicense
 		for _, lib := range app.Packages {
 			for _, license := range lib.Licenses {
-				category, severity := scanner.Scan(license)
-				langLicenses = append(langLicenses, types.DetectedLicense{
-					Severity: severity,
-					Category: category,
-					PkgName:  lib.Name,
-					Name:     license,
-					// Lock files use app.FilePath - https://github.com/aquasecurity/trivy/blob/6ccc0a554b07b05fd049f882a1825a0e1e0aabe1/pkg/fanal/types/artifact.go#L245-L246
-					// Applications use lib.FilePath - https://github.com/aquasecurity/trivy/blob/6ccc0a554b07b05fd049f882a1825a0e1e0aabe1/pkg/fanal/types/artifact.go#L93-L94
-					FilePath:   lo.Ternary(lib.FilePath != "", lib.FilePath, app.FilePath),
-					Confidence: 1.0,
-				})
+				// Lock files use app.FilePath - https://github.com/aquasecurity/trivy/blob/6ccc0a554b07b05fd049f882a1825a0e1e0aabe1/pkg/fanal/types/artifact.go#L245-L246
+				// Applications use lib.FilePath - https://github.com/aquasecurity/trivy/blob/6ccc0a554b07b05fd049f882a1825a0e1e0aabe1/pkg/fanal/types/artifact.go#L93-L94
+				filePath := lo.Ternary(lib.FilePath != "", lib.FilePath, app.FilePath)
+
+				langLicenses = append(langLicenses, toDetectedLicense(scanner, license, lib.Name, filePath))
 			}
 		}
 
@@ -391,8 +377,57 @@ func toDetectedMisconfiguration(res ftypes.MisconfResult, defaultSeverity dbType
 	}
 }
 
+func toDetectedLicense(scanner licensing.Scanner, license, pkgName, filePath string) types.DetectedLicense {
+	var category ftypes.LicenseCategory
+	var severity, licenseText string
+	if strings.HasPrefix(license, licensing.LicenseTextPrefix) { // License text
+		licenseText = strings.TrimPrefix(license, licensing.LicenseTextPrefix)
+		category = ftypes.CategoryUnknown
+		severity = dbTypes.SeverityUnknown.String()
+		license = licensing.CustomLicensePrefix + ": " + licensing.TrimLicenseText(licenseText)
+	} else { // License name
+		category, severity = scanner.Scan(license)
+	}
+
+	return types.DetectedLicense{
+		Severity:   severity,
+		Category:   category,
+		PkgName:    pkgName,
+		FilePath:   filePath,
+		Name:       license,
+		Text:       licenseText,
+		Confidence: 1.0,
+	}
+}
+
 func ShouldScanMisconfigOrRbac(scanners types.Scanners) bool {
 	return scanners.AnyEnabled(types.MisconfigScanner, types.RBACScanner)
+}
+
+func excludePackages(target *types.ScanTarget, options types.ScanOptions) {
+	// Filter packages by relationship
+	filterPkgByRelationship(target, options)
+
+	// By default, development packages are removed from the result
+	// '--include-dev-deps' option allows including them
+	excludeDevDeps(target.Applications, options.IncludeDevDeps)
+}
+
+func filterPkgByRelationship(target *types.ScanTarget, options types.ScanOptions) {
+	if slices.Compare(options.PkgRelationships, ftypes.Relationships) == 0 {
+		return // No need to filter
+	}
+
+	filter := func(pkgs []ftypes.Package) []ftypes.Package {
+		return lo.Filter(pkgs, func(pkg ftypes.Package, index int) bool {
+			return slices.Contains(options.PkgRelationships, pkg.Relationship)
+		})
+	}
+
+	target.Packages = filter(target.Packages)
+	for i, app := range target.Applications {
+		target.Applications[i].Packages = filter(app.Packages)
+	}
 }
 
 // excludeDevDeps removes development dependencies from the list of applications

@@ -6,13 +6,16 @@ import (
 
 	"github.com/mattn/go-shellwords"
 	"github.com/samber/lo"
+	"github.com/spf13/viper"
 	"golang.org/x/xerrors"
 
 	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
+	"github.com/aquasecurity/trivy/pkg/cache"
 	"github.com/aquasecurity/trivy/pkg/compliance/spec"
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/result"
 	"github.com/aquasecurity/trivy/pkg/types"
+	"github.com/aquasecurity/trivy/pkg/utils/fsutils"
 	xstrings "github.com/aquasecurity/trivy/pkg/x/strings"
 )
 
@@ -106,20 +109,6 @@ var (
 		ConfigName: "scan.show-suppressed",
 		Usage:      "[EXPERIMENTAL] show suppressed vulnerabilities",
 	}
-	PkgTypesFlag = Flag[[]string]{
-		Name:       "pkg-types",
-		ConfigName: "pkg-types",
-		Default:    types.PkgTypes,
-		Values:     types.PkgTypes,
-		Usage:      "comma-separated list of package types",
-		Aliases: []Alias{
-			{
-				Name:       "vuln-type",
-				ConfigName: "vulnerability.type",
-				Deprecated: true, // --vuln-type was renamed to --pkg-types
-			},
-		},
-	}
 )
 
 // ReportFlagGroup composes common printer flag structs
@@ -139,7 +128,6 @@ type ReportFlagGroup struct {
 	Severity        *Flag[[]string]
 	Compliance      *Flag[string]
 	ShowSuppressed  *Flag[bool]
-	PkgTypes        *Flag[[]string]
 }
 
 type ReportOptions struct {
@@ -157,7 +145,6 @@ type ReportOptions struct {
 	Severities       []dbTypes.Severity
 	Compliance       spec.ComplianceSpec
 	ShowSuppressed   bool
-	PkgTypes         []string
 }
 
 func NewReportFlagGroup() *ReportFlagGroup {
@@ -176,7 +163,6 @@ func NewReportFlagGroup() *ReportFlagGroup {
 		Severity:        SeverityFlag.Clone(),
 		Compliance:      ComplianceFlag.Clone(),
 		ShowSuppressed:  ShowSuppressedFlag.Clone(),
-		PkgTypes:        PkgTypesFlag.Clone(),
 	}
 }
 
@@ -200,7 +186,6 @@ func (f *ReportFlagGroup) Flags() []Flagger {
 		f.Severity,
 		f.Compliance,
 		f.ShowSuppressed,
-		f.PkgTypes,
 	}
 }
 
@@ -255,6 +240,10 @@ func (f *ReportFlagGroup) ToOptions() (ReportOptions, error) {
 		}
 	}
 
+	if viper.IsSet(f.IgnoreFile.ConfigName) && !fsutils.FileExists(f.IgnoreFile.Value()) {
+		return ReportOptions{}, xerrors.Errorf("ignore file not found: %s", f.IgnoreFile.Value())
+	}
+
 	return ReportOptions{
 		Format:           format,
 		ReportFormat:     f.ReportFormat.Value(),
@@ -270,7 +259,6 @@ func (f *ReportFlagGroup) ToOptions() (ReportOptions, error) {
 		Severities:       toSeverity(f.Severity.Value()),
 		Compliance:       cs,
 		ShowSuppressed:   f.ShowSuppressed.Value(),
-		PkgTypes:         f.PkgTypes.Value(),
 	}, nil
 }
 
@@ -279,7 +267,7 @@ func loadComplianceTypes(compliance string) (spec.ComplianceSpec, error) {
 		return spec.ComplianceSpec{}, xerrors.Errorf("unknown compliance : %v", compliance)
 	}
 
-	cs, err := spec.GetComplianceSpec(compliance)
+	cs, err := spec.GetComplianceSpec(compliance, cache.DefaultDir())
 	if err != nil {
 		return spec.ComplianceSpec{}, xerrors.Errorf("spec loading from file system error: %w", err)
 	}

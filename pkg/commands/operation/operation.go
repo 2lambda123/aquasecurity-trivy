@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/aquasecurity/trivy/pkg/db"
@@ -13,26 +14,28 @@ import (
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/policy"
 	"github.com/aquasecurity/trivy/pkg/types"
+	"github.com/aquasecurity/trivy/pkg/vex"
+	"github.com/aquasecurity/trivy/pkg/vex/repo"
 )
 
 var mu sync.Mutex
 
 // DownloadDB downloads the DB
-func DownloadDB(ctx context.Context, appVersion, cacheDir string, dbRepository name.Reference, quiet, skipUpdate bool,
+func DownloadDB(ctx context.Context, appVersion, cacheDir string, dbRepositories []name.Reference, quiet, skipUpdate bool,
 	opt ftypes.RegistryOptions) error {
 	mu.Lock()
 	defer mu.Unlock()
 
+	ctx = log.WithContextPrefix(ctx, log.PrefixVulnerabilityDB)
 	dbDir := db.Dir(cacheDir)
-	client := db.NewClient(dbDir, quiet, db.WithDBRepository(dbRepository))
+	client := db.NewClient(dbDir, quiet, db.WithDBRepository(dbRepositories))
 	needsUpdate, err := client.NeedsUpdate(ctx, appVersion, skipUpdate)
 	if err != nil {
 		return xerrors.Errorf("database error: %w", err)
 	}
 
 	if needsUpdate {
-		log.Info("Need to update DB")
-		log.Info("Downloading DB...", log.String("repository", dbRepository.String()))
+		log.InfoContext(ctx, "Need to update DB")
 		if err = client.Download(ctx, dbDir, opt); err != nil {
 			return xerrors.Errorf("failed to download vulnerability DB: %w", err)
 		}
@@ -45,8 +48,37 @@ func DownloadDB(ctx context.Context, appVersion, cacheDir string, dbRepository n
 	return nil
 }
 
-// InitBuiltinPolicies downloads the built-in policies and loads them
-func InitBuiltinPolicies(ctx context.Context, cacheDir string, quiet, skipUpdate bool, checkBundleRepository string, registryOpts ftypes.RegistryOptions) ([]string, error) {
+func DownloadVEXRepositories(ctx context.Context, opts flag.Options) error {
+	ctx = log.WithContextPrefix(ctx, "vex")
+	if opts.SkipVEXRepoUpdate {
+		log.InfoContext(ctx, "Skipping VEX repository update")
+		return nil
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Download VEX repositories only if `--vex repo` is passed.
+	_, enabled := lo.Find(opts.VEXSources, func(src vex.Source) bool {
+		return src.Type == vex.TypeRepository
+	})
+	if !enabled {
+		return nil
+	}
+
+	err := repo.NewManager(opts.CacheDir).DownloadRepositories(ctx, nil, repo.Options{
+		Insecure: opts.Insecure,
+	})
+	if err != nil {
+		return xerrors.Errorf("failed to download vex repositories: %w", err)
+	}
+
+	return nil
+
+}
+
+// InitBuiltinChecks downloads the built-in policies and loads them
+func InitBuiltinChecks(ctx context.Context, cacheDir string, quiet, skipUpdate bool, checkBundleRepository string, registryOpts ftypes.RegistryOptions) ([]string, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -64,14 +96,14 @@ func InitBuiltinPolicies(ctx context.Context, cacheDir string, quiet, skipUpdate
 	}
 
 	if needsUpdate {
-		log.Info("Need to update the built-in policies")
-		log.Info("Downloading the built-in policies...")
-		if err = client.DownloadBuiltinPolicies(ctx, registryOpts); err != nil {
+		log.InfoContext(ctx, "Need to update the built-in checks")
+		log.InfoContext(ctx, "Downloading the built-in checks...")
+		if err = client.DownloadBuiltinChecks(ctx, registryOpts); err != nil {
 			return nil, xerrors.Errorf("failed to download built-in policies: %w", err)
 		}
 	}
 
-	policyPaths, err := client.LoadBuiltinPolicies()
+	policyPaths, err := client.LoadBuiltinChecks()
 	if err != nil {
 		if skipUpdate {
 			msg := "No downloadable policies were loaded as --skip-check-update is enabled"

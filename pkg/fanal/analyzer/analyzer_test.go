@@ -614,7 +614,7 @@ func TestAnalyzerGroup_PostAnalyze(t *testing.T) {
 			require.NoError(t, err)
 
 			// Create a virtual filesystem
-			composite, err := analyzer.NewCompositeFS(analyzer.AnalyzerGroup{})
+			composite, err := analyzer.NewCompositeFS()
 			require.NoError(t, err)
 
 			mfs := mapfs.New()
@@ -623,9 +623,9 @@ func TestAnalyzerGroup_PostAnalyze(t *testing.T) {
 
 			if tt.analyzerType == analyzer.TypeJar {
 				// init java-trivy-db with skip update
-				repo, err := name.NewTag(javadb.DefaultRepository)
+				repo, err := name.NewTag(javadb.DefaultGHCRRepository)
 				require.NoError(t, err)
-				javadb.Init("./language/java/jar/testdata", repo, true, false, types.RegistryOptions{Insecure: false})
+				javadb.Init("./language/java/jar/testdata", []name.Reference{repo}, true, false, types.RegistryOptions{Insecure: false})
 			}
 
 			ctx := context.Background()

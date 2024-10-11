@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	multierror "github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/go-multierror"
 	"github.com/samber/lo"
 	"golang.org/x/net/html/charset"
 	"golang.org/x/xerrors"
@@ -292,6 +292,14 @@ func (p *Parser) resolve(art artifact, rootDepManagement []pomDependency) (analy
 		return *result, nil
 	}
 
+	// We can't resolve a dependency without a version.
+	// So let's just keep this dependency.
+	if art.Version.String() == "" {
+		return analysisResult{
+			artifact: art,
+		}, nil
+	}
+
 	p.logger.Debug("Resolving...", log.String("group_id", art.GroupID),
 		log.String("artifact_id", art.ArtifactID), log.String("version", art.Version.String()))
 	pomContent, err := p.tryRepository(art.GroupID, art.ArtifactID, art.Version.String())
@@ -335,8 +343,20 @@ func (p *Parser) analyze(pom *pom, opts analysisOptions) (analysisResult, error)
 	p.releaseRemoteRepos = lo.Uniq(append(pomReleaseRemoteRepos, p.releaseRemoteRepos...))
 	p.snapshotRemoteRepos = lo.Uniq(append(pomSnapshotRemoteRepos, p.snapshotRemoteRepos...))
 
+	// We need to forward dependencyManagements from current and root pom to Parent,
+	// to use them for dependencies in parent.
+	// For better understanding see the following tests:
+	// - `dependency from parent uses version from child pom depManagement`
+	// - `dependency from parent uses version from root pom depManagement`
+	//
+	// depManagements from root pom has higher priority than depManagements from current pom.
+	depManagementForParent := lo.UniqBy(append(opts.depManagement, pom.content.DependencyManagement.Dependencies.Dependency...),
+		func(dep pomDependency) string {
+			return dep.Name()
+		})
+
 	// Parent
-	parent, err := p.parseParent(pom.filePath, pom.content.Parent)
+	parent, err := p.parseParent(pom.filePath, pom.content.Parent, depManagementForParent)
 	if err != nil {
 		return analysisResult{}, xerrors.Errorf("parent error: %w", err)
 	}
@@ -477,7 +497,7 @@ func excludeDep(exclusions map[string]struct{}, art artifact) bool {
 	return false
 }
 
-func (p *Parser) parseParent(currentPath string, parent pomParent) (analysisResult, error) {
+func (p *Parser) parseParent(currentPath string, parent pomParent, rootDepManagement []pomDependency) (analysisResult, error) {
 	// Pass nil properties so that variables in <parent> are not evaluated.
 	target := newArtifact(parent.GroupId, parent.ArtifactId, parent.Version, nil, nil)
 	// if version is property (e.g. ${revision}) - we still need to parse this pom
@@ -499,7 +519,9 @@ func (p *Parser) parseParent(currentPath string, parent pomParent) (analysisResu
 		logger.Debug("Parent POM not found", log.Err(err))
 	}
 
-	result, err := p.analyze(parentPOM, analysisOptions{})
+	result, err := p.analyze(parentPOM, analysisOptions{
+		depManagement: rootDepManagement,
+	})
 	if err != nil {
 		return analysisResult{}, xerrors.Errorf("analyze error: %w", err)
 	}
@@ -680,18 +702,15 @@ func (p *Parser) fetchPOMFromRemoteRepositories(paths []string, snapshot bool) (
 func (p *Parser) remoteRepoRequest(repo string, paths []string) (*http.Request, error) {
 	repoURL, err := url.Parse(repo)
 	if err != nil {
-		p.logger.Error("URL parse error", log.String("repo", repo))
-		return nil, nil
+		return nil, xerrors.Errorf("unable to parse URL: %w", err)
 	}
 
 	paths = append([]string{repoURL.Path}, paths...)
 	repoURL.Path = path.Join(paths...)
 
-	logger := p.logger.With(log.String("host", repoURL.Host), log.String("path", repoURL.Path))
 	req, err := http.NewRequest("GET", repoURL.String(), http.NoBody)
 	if err != nil {
-		logger.Debug("HTTP request failed")
-		return nil, nil
+		return nil, xerrors.Errorf("unable to create HTTP request: %w", err)
 	}
 	if repoURL.User != nil {
 		password, _ := repoURL.User.Password()
@@ -709,13 +728,17 @@ func (p *Parser) fetchPomFileNameFromMavenMetadata(repo string, paths []string) 
 
 	req, err := p.remoteRepoRequest(repo, mavenMetadataPaths)
 	if err != nil {
-		return "", xerrors.Errorf("unable to create request for maven-metadata.xml file")
+		p.logger.Debug("Unable to create request", log.String("repo", repo), log.Err(err))
+		return "", nil
 	}
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		p.logger.Debug("Failed to fetch", log.String("url", req.URL.String()))
+	if err != nil {
+		p.logger.Debug("Failed to fetch", log.String("url", req.URL.String()), log.Err(err))
+		return "", nil
+	} else if resp.StatusCode != http.StatusOK {
+		p.logger.Debug("Failed to fetch", log.String("url", req.URL.String()), log.Int("statusCode", resp.StatusCode))
 		return "", nil
 	}
 	defer resp.Body.Close()
@@ -739,13 +762,17 @@ func (p *Parser) fetchPomFileNameFromMavenMetadata(repo string, paths []string) 
 func (p *Parser) fetchPOMFromRemoteRepository(repo string, paths []string) (*pom, error) {
 	req, err := p.remoteRepoRequest(repo, paths)
 	if err != nil {
-		return nil, xerrors.Errorf("unable to create request for pom file")
+		p.logger.Debug("Unable to create request", log.String("repo", repo), log.Err(err))
+		return nil, nil
 	}
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		p.logger.Debug("Failed to fetch", log.String("url", req.URL.String()))
+	if err != nil {
+		p.logger.Debug("Failed to fetch", log.String("url", req.URL.String()), log.Err(err))
+		return nil, nil
+	} else if resp.StatusCode != http.StatusOK {
+		p.logger.Debug("Failed to fetch", log.String("url", req.URL.String()), log.Int("statusCode", resp.StatusCode))
 		return nil, nil
 	}
 	defer resp.Body.Close()

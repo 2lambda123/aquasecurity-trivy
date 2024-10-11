@@ -43,6 +43,7 @@ trivy [global flags] command [flags] target
 
 ### SEE ALSO
 
+* [trivy auth](trivy_auth.md)	 - Authentication
 * [trivy clean](trivy_clean.md)	 - Remove cached files
 * [trivy config](trivy_config.md)	 - Scan config files for misconfigurations
 * [trivy convert](trivy_convert.md)	 - Convert Trivy JSON report into a different format
@@ -56,5 +57,6 @@ trivy [global flags] command [flags] target
 * [trivy sbom](trivy_sbom.md)	 - Scan SBOM for vulnerabilities and licenses
 * [trivy server](trivy_server.md)	 - Server mode
 * [trivy version](trivy_version.md)	 - Print the version
+* [trivy vex](trivy_vex.md)	 - [EXPERIMENTAL] VEX utilities
 * [trivy vm](trivy_vm.md)	 - [EXPERIMENTAL] Scan a virtual machine image
 

@@ -24,6 +24,7 @@ const (
 	Alma               OSType = "alma"
 	Alpine             OSType = "alpine"
 	Amazon             OSType = "amazon"
+	Azure              OSType = "azurelinux"
 	CBLMariner         OSType = "cbl-mariner"
 	CentOS             OSType = "centos"
 	Chainguard         OSType = "chainguard"
@@ -36,6 +37,7 @@ const (
 	Photon             OSType = "photon"
 	RedHat             OSType = "redhat"
 	Rocky              OSType = "rocky"
+	SLEMicro           OSType = "suse linux enterprise micro"
 	SLES               OSType = "suse linux enterprise server"
 	Ubuntu             OSType = "ubuntu"
 	Wolfi              OSType = "wolfi"
@@ -97,6 +99,7 @@ var AggregatingTypes = []LangType{
 // Config files
 const (
 	JSON                  ConfigType = "json"
+	YAML                  ConfigType = "yaml"
 	Dockerfile            ConfigType = "dockerfile"
 	Terraform             ConfigType = "terraform"
 	TerraformPlanJSON     ConfigType = "terraformplan"
