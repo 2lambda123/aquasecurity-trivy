@@ -72,17 +72,17 @@ func (s *Scanner) Detect(ctx context.Context, osVer string, _ *ftypes.Repository
 		sourceVersion := version.NewVersion(srcVersion)
 		for _, adv := range advisories {
 			fixedVersion := version.NewVersion(adv.FixedVersion)
-			vuln := types.DetectedVulnerability{
-				VulnerabilityID:  adv.VulnerabilityID,
-				PkgID:            pkg.ID,
-				PkgName:          pkg.Name,
-				InstalledVersion: installed,
-				PkgIdentifier:    pkg.Identifier,
-				Layer:            pkg.Layer,
-				Custom:           adv.Custom,
-				DataSource:       adv.DataSource,
-			}
 			if sourceVersion.LessThan(fixedVersion) {
+				vuln := types.DetectedVulnerability{
+					VulnerabilityID:  adv.VulnerabilityID,
+					PkgID:            pkg.ID,
+					PkgName:          pkg.Name,
+					InstalledVersion: installed,
+					PkgIdentifier:    pkg.Identifier,
+					Layer:            pkg.Layer,
+					Custom:           adv.Custom,
+					DataSource:       adv.DataSource,
+				}
 				vuln.FixedVersion = adv.FixedVersion
 				vulns = append(vulns, vuln)
 			}
