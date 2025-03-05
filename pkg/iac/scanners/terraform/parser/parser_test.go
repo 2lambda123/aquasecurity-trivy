@@ -1693,7 +1693,7 @@ output "staticZero" {
 
 	// no data resources should exist as their counts are 0
 	datas := modules.GetDatasByType("test_resource")
-	require.Len(t, datas, 0)
+	require.Empty(t, datas)
 }
 
 func TestModuleRefersToOutputOfAnotherModule(t *testing.T) {
