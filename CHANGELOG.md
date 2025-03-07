@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.61.0](https://github.com/aquasecurity/trivy/compare/v0.60.0...v0.61.0) (2025-03-07)
+
+
+### Features
+
+* replace TinyGo with standard Go for WebAssembly modules ([#8496](https://github.com/aquasecurity/trivy/issues/8496)) ([529957e](https://github.com/aquasecurity/trivy/commit/529957eac1fc790c57fa3d93524a901ce842a9f5))
+
+
+### Bug Fixes
+
+* **spdx:** save text licenses into `otherLicenses` without normalize ([#8502](https://github.com/aquasecurity/trivy/issues/8502)) ([e5072f1](https://github.com/aquasecurity/trivy/commit/e5072f1eef8f3a78f4db48b4ac3f7c48aeec5e92))
+
 ## [0.60.0](https://github.com/aquasecurity/trivy/compare/v0.59.0...v0.60.0) (2025-03-05)
 
 
