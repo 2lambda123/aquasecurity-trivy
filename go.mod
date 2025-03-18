@@ -39,7 +39,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.8.1
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cheggaaa/pb/v3 v3.1.7
-	github.com/containerd/containerd/v2 v2.0.3
+	github.com/containerd/containerd/v2 v2.0.4
 	github.com/containerd/platforms v1.0.0-rc.1
 	github.com/distribution/reference v0.6.0
 	github.com/docker/cli v27.5.0+incompatible
@@ -189,7 +189,7 @@ require (
 	github.com/cloudflare/circl v1.6.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20240905190251-b4127c9b8d78 // indirect
 	github.com/containerd/cgroups/v3 v3.0.3 // indirect
-	github.com/containerd/containerd v1.7.26 // indirect
+	github.com/containerd/containerd v1.7.27 // indirect
 	github.com/containerd/containerd/api v1.8.0 // indirect
 	github.com/containerd/continuity v0.4.5 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
